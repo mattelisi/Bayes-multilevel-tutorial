@@ -1,0 +1,1485 @@
+---
+title: "Multilevel models"
+author:
+- affiliation: Centre for Applied Vision Research, City, University of London
+  name: Matteo Lisi
+date: "GDR Vision - Paris 4/10/2018"
+output:
+  ioslides_presentation:
+    css: ./style.css
+    incremental: yes
+    logo: logocitynew.pdf.png
+    smaller: yes
+    transition: 0
+subtitle: frequentist and Bayesian approaches
+---
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = FALSE, collapse = TRUE, comment=NA, tidy.opts=list(width.cutoff=60),tidy=TRUE)
+library(knitr)
+opts_chunk$set(collapse = TRUE, comment=NA, tidy.opts=list(width.cutoff=55),tidy=TRUE)
+
+library(lme4)
+library(mlisi)
+library(rstan)
+```
+
+## Today's program
+
+> 1. Multilevel models from a frequentist perspective
+> 2. The Bayesian approach
+> 3. Markov Chain Monte Carlo (MCMC)
+> 4. Examples
+
+## Linear models
+
+> - The dependent variable $y$ is modeled as a weighted combination of the independent variables, plus an additive error $\epsilon$ $$
+y_i=\beta_0 + \beta_1x_{1i} + \ldots +\beta_nx_{ni} + \epsilon_i \\
+\epsilon \sim \mathcal{N}\left( 0, \sigma^2 \right)
+$$
+
+## Linear models
+
+> - The dependent variable $y$ is modeled as a weighted combination of the independent variables, plus an additive error $\epsilon$ $$
+\textbf{Y} = \textbf{X}\beta + \epsilon \\
+\epsilon \sim \mathcal{N}\left( 0, \sigma^2 \right)
+$$
+
+---- 
+
+Matrix notation:
+
+$$
+\bf{Y} = \bf{X}\beta + \epsilon 
+$$
+$$
+\left( \begin{array}{c} y_1 \\ \vdots \\ y_m \end{array} \right) =
+\left( \begin{array}{cccc} 
+1 & x_{11} & \ldots & x_{1n}\\ 
+\vdots & \vdots & \vdots & \vdots\\ 
+1 & x_{m1} & \ldots & x_{mn}
+\end{array} \right)
+\left( \begin{array}{c} \beta_0 \\  \beta_1 \\ \vdots \\ \beta_n \end{array} \right) +
+\left( \begin{array}{c} \epsilon_1 \\ \vdots \\ \epsilon_m \end{array} \right)
+$$
+
+Matrix multiplication: 
+$$
+\left( \begin{array}{cc} a & b \\ c& d \end{array} \right) 
+\left( \begin{array}{c} 1 \\ 2 \end{array} \right) = 
+1 \left( \begin{array}{c} a \\ c \end{array} \right) + 
+2 \left( \begin{array}{c} b \\ d \end{array} \right) =
+\left( \begin{array}{c} a + 2b \\ c+ 2d \end{array} \right)
+$$
+
+## Linear mixed-effects models
+
+- 'Classical' linear models are _fixed-effects_ only: 
+    - independent variables are all experimental manipulation (they are not random).
+    - the only random source of variation is the residual error $\epsilon \sim \mathcal{N}\left( 0, \sigma^2 \right)$.
+- However _observations_ (e.g. trials) are often grouped according to _observational cluster_ (e.g. subjects), random samples from a larger population, on which we'd like to make inferences.
+- In order to properly generalize from the sample to the population, these variables should be treated as _random effects_. Mixed-effects models allow to do that by explicitly modelling the population distribution.
+
+----
+
+- A model containing both fixed and random effects is usually called a _mixed-effects_ model (but also: hierarchical, multilevel, etc.).
+- Random effects are treated as random variations around a population mean. These random variations are usually assumed to have a Gaussian distribution. 
+- A simple example: a _random-intercept_ model. Regressions have the same slope in each of the $J$ groups ($j=1,\dots,J$), but random variations in intercept $$
+y_{ij} = \beta_0 + b_j + \beta_1x_{ij} + \epsilon_{i}\\
+\epsilon \sim \mathcal{N}\left( 0, \sigma^2 \right)\\
+b \sim \mathcal{N}\left( 0, \sigma_b^2 \right)
+$$
+
+----
+
+- General formulation in matrix notation
+$$
+\textbf{Y} = \textbf{X}\beta + \textbf{Z}b + \epsilon 
+$$
+where $\textbf{X}$ and $\textbf{Z}$ are the known fixed-effects and random-effects regressor matrices.
+
+- The components of the residual error vector $\epsilon \sim \mathcal{N}\left( 0, \sigma^2 \right)$ are assumed to be *i.i.d.* (independent and identically distributed).
+
+- The random-effect components, $b \sim \mathcal{N}\left( 0, \Omega \right)$ are assumed to be normally distributed with mean 0, however they are not necessarily independent (the components $b_j$ can be correlated, and correlations can be estimated). Example:$$
+\left[ {\begin{array}{c}
+{{b_0}}\\
+{{b_1}}
+\end{array}} \right] \sim\cal N \left( {\left[ {\begin{array}{c}
+0 \\ 0 \end{array}} \right],\Omega  = \left[ {\begin{array}{c}
+{{\mathop{\rm Var}} \left( b_0 \right)} & {{\mathop{\rm cov}} \left( {{b_0},{b_1}} \right)}\\
+{{\mathop{\rm cov}} \left( {{b_0},{b_1}} \right)} & {{\mathop{\rm Var}} \left( b_1 \right)}
+\end{array}} \right]} \right)
+$$
+
+## Likelihood function
+
+- Parameters ($\beta$, $\sigma^2$ and $\Omega$) are estimated by maximizing the likelihood function, which is the probability of the data, given the parameters (but treated as a function of the parameters, keeping the data fixed).
+
+- The probability of the data _conditional to the random effects_ is integrated with respect to the marginal density of the random effects, to obtain the marginal density of the data $$
+L\left(\beta,\sigma^2,\Omega \mid \text{data}\right) = \int p \left(\text{data} \mid \beta,\sigma^2, b\right) \, p\left(b \mid \Omega\right) \, db
+$$
+
+## ML vs REML
+
+- The $\textsf{R}$ library `lme4` provides two methods for estimating parameters: Maximum Likelihood (ML) and Restricted Maximum Likelihood (REML).
+
+- ML tend to be biased and underestimate the variance components (e.g. $\Omega$).
+
+- REML provide less biased variance estimates: conceptually can be seen as similar to Bessel's correction for sample variance (using $n-1$ instead of $n$ in the denominator).
+
+
+## Advantages of multilevel models 
+
+- Improved estimates for _repeated sampling_ (e.g. repeated-measures design).
+- Improved estimates for _imbalances in sampling_ (e.g. unequal number of trials across subjects).
+- Avoid averaging (pre-averaging of data remove variation and can manifacture false confidence).
+- Subject-specific standard error is taken into account in group-level estimates.
+- Variation among group or individuals is modelled explicitly.
+- Outperform classical methods in predictive ability.
+
+## Example 1 `sleepstudy` {.build}
+
+`sleepstudy` is a dataset in the `lme4` package, with reaction times data from 18 subjects that were restricted to 3 hours of sleep for 10 days. 
+
+Questions:
+
+> - how reaction times changes with each sleep-deprived night?
+- are individual difference in baseline response times related to individual differences in the effect of sleep deprivation?
+
+```{r}
+str(sleepstudy)
+```
+
+----
+
+```{r, include=FALSE}
+library(ggplot2)
+nice_theme <- theme_bw()+theme(text=element_text(family="Helvetica",size=9),panel.border=element_blank(),strip.background = element_rect(fill="white",color="white",size=0),strip.text=element_text(size=rel(0.8)),panel.grid.major.x=element_blank(),panel.grid.major.y=element_blank(),panel.grid.minor=element_blank(),axis.line.x=element_line(size=.4),axis.line.y=element_line(size=.4),axis.text.x=element_text(size=7,color="black"),axis.text.y=element_text(size=7,color="black"),axis.line=element_line(size=.4), axis.ticks=element_line(color="black"))
+```
+
+<div class="centered">
+
+```{r, echo=F,fig.height=4,fig.width=7}
+ggplot(sleepstudy, aes(x=Days,y=Reaction))+geom_point()+geom_smooth(method="lm",lwd=1)+facet_wrap(~Subject,ncol=9)+nice_theme+scale_x_continuous(breaks=seq(0,10,2))+labs(x="Days of sleep deprivation",y="Mean reaction times [ms]")
+```
+</div>
+
+----
+
+> - The model we want to fit includes both random slopes and intercept $$
+y_{ij} = \beta_0 + b_{0j} + \left( \beta_1 + b_{1j} \right) \times {\rm{Days}}_i + \epsilon_i \\
+\epsilon \sim \mathcal{N}\left( 0, \sigma^2 \right) \\
+b\sim\cal N \left( 0, \Omega\right)
+$$
+
+> - In `lme4` 
+```{r, warning=F}
+m.1 <- lmer(Reaction ~ 1 + Days + (1 + Days|Subject), sleepstudy)
+```
+
+```{r, include=F}
+load("sleepCI.RData")
+```
+
+----
+
+```{r}
+summary(m.1)
+```
+
+----
+
+The function `confint()` allow easily to compute bootstrapped 95% CI of the parameters
+```{r, eval=FALSE}
+CI_fixef <- confint(m.1, method="boot", nsim=500, oldNames=F)
+```
+```{r}
+print(CI_fixef, digits=2)
+```
+
+## {.build}
+
+- Tests of fixed and random effects can also be conducted using likelihood ratio tests, by comparing the likelihood of two _nested_ models.
+- If $L_1$ and $L_2$ are the maximised likelihoods of two nested models with $k_1 < k_2$ parameters, the test statistic is $2\text{log}\left( L_2/ L_1 \right)$, which is approximately $\chi^2$ with $k_2 - k_1$ degrees of freedom.
+- Example: test if there are substantial variation across subjects in the effect of `Days`
+```{r}
+# m.1 <- lmer(Reaction ~ 1 + Days + (1 + Days|Subject), sleepstudy)
+m.2 <- lmer(Reaction ~ 1 + Days + (1 |Subject), sleepstudy)
+anova(m.1, m.2)
+```
+
+----
+_Shrinkage_: the _predicted_ ${\hat b}_j$ (conditional modes of the random effects) can be seen as a "compromise" between the within-subject estimates and the population mean.
+
+<div class="centered">
+```{r, echo=F,fig.height=5.5,fig.width=5}
+# analyze shrinking
+m.single <- coef(lmList(Reaction ~ Days | Subject, sleepstudy))
+par.mixed <- as.matrix(ranef(m.1)$Subject) + repmat(t(as.matrix(fixef(m.1))),18,1)
+  
+# plot parameters from mixed model and individual fit
+plot(m.single[,1], m.single[,2], xlab="Intercept",ylab="Slope",pch=19,cex.lab=1.2,xlim=c(190,310),ylim=c(-5,25),col="dark grey")
+
+# draw ellipse illustrating covariance of random effects
+vcov_m.1 <- matrix(as.vector(VarCorr(m.1)$Subject),ncol=2)
+mixtools::ellipse(c(mean(par.mixed[,1]), mean(par.mixed[,2])), sigma=vcov_m.1,alpha=0.05, col="grey", lty=2)
+
+points(mean(m.single[,1]), mean(m.single[,2]),pch=19,col="dark grey",cex=2)
+points(mean(par.mixed[,1]), mean(par.mixed[,2]),pch=21,col="black",cex=2,lwd=2)
+text(m.single[,1], m.single[,2],labels=rownames(m.single),pos=1,cex=0.6)
+points(par.mixed[,1], par.mixed[,2])
+arrows(m.single[,1], m.single[,2],par.mixed[,1], par.mixed[,2], length=0.1)
+legend("bottomright",c("single-subject fits","multilevel model"),pch=c(19,21),col=c("dark grey", "black"),bty="n",cex=0.6)
+```
+</div>
+
+<div class="notes">
+They are sometime called BLUP (_Best Linear Umbiased Predictors_) since they are treated as random variables, not as unknown parameters, and in statistical jargon we say we _predict_ (rather than _estimate_) random variables. A more appropriate term is probably conditional modes of the random effects.
+</div>
+
+## Diagnostic
+
+As for any linear model, it is important to check that residual errors are well-behaved
+<div class="centered">
+```{r, echo=F,fig.height=4,fig.width=6}
+	# diagnostic plot: visualize the model residuals
+	par(mfrow=c(1,2))
+	#plot(fitted(m.1),resid(m.1), xlab="fitted values", ylab="residuals") # against fitted values if more than one predictor
+	plot(jitter(sleepstudy$Days),resid(m.1), xlab="Days", ylab="residuals") # but here one could plot it agains the preditor Days in this way
+	#boxplot(resid(m.1)~sleepstudy$Days, xlab="Days", ylab="residuals")
+	abline(h=0,lty=2)
+	qqnorm(resid(m.1))
+	qqline(resid(m.1),lty=2)
+	
+```
+</div>
+
+## The _frequentist_ approach
+
+- So far, we've seen multilevel models from a **frequentist** point of view.
+    - parameters are seen as unknown _fixed_ quantities.
+    - the goal is to find best guesses (point-estimates) of the parameters.
+    - uncertainty in the parameter's value is not treated probabilistically.
+    - uncertainty in the estimates is characterized in relation to the data-generating process (think about the highly un-intuitive definition of confidence interval).
+    - probability is interpreted as the expected _long-run frequency_ of an event in an (imaginary) very large sample.
+    
+## The _Bayesian_ approach
+
+- What is different in the Bayesian approach?
+    - probability is interpreted as the _degree of belief_ in the occurrence of an event, or in a proposition.
+    - parameters are seen as unknown random variable, uncertainty in their values represented by a _prior_ probability distribution.
+    - the goal is to update the prior distribution on the basis of the available data, leading to a _posterior_ probability distribution.
+    - this is done with Bayes' theorem, however the Bayesian approach _is not_ distinguished by Bayes' theorem (which is just a trivial implication of probability theory).
+    - _"The essential characteristic of Bayesian methods is their explicit use of
+probability for quantifying uncertainty in inferences based on statistical
+analysis"_ (Gelman et al. 2013).
+
+## Bayesian models
+
+- In a typical Bayesian setting we have a likelihood $p\left(\text{data} \mid \theta\right)$, conditional on the parameter $\theta$, and a prior distribution $p\left(\theta\right)$. The posterior distribution for the parameter is $$ p\left(\theta \mid \text{data}\right) = \frac{p\left(\text{data} \mid \theta\right)  p\left(\theta\right)}{p\left( \text{data} \right)} $$
+
+## Bayesian models
+
+> - In a typical Bayesian setting we have a likelihood $p\left(\text{data} \mid \theta\right)$, conditional on the parameter $\theta$, and a prior distribution $p\left(\theta\right)$. The posterior distribution for the parameter is $$ p\left(\theta \mid \text{data}\right) = \frac{p\left(\text{data} \mid \theta\right)p\left(\theta\right)}{\int p\left( \text{data} \mid \theta \right) p\left(\theta\right) d\theta}$$
+
+<div class="notes">
+This is called averaged likelihood because it is averaged over the prior (also called the evidence or the probability of the data). Also called marginal likelihood because it is marginalised over all possible values of $\theta$ weighted by their probability.
+</div>
+
+
+## Bayesian models
+
+> - In a typical Bayesian setting we have a likelihood $p\left(\text{data} \mid \theta\right)$, conditional on the parameter $\theta$, and a prior distribution $p\left(\theta\right)$. The posterior distribution for the parameter is $$ p\left(\theta \mid \text{data} \right) = \frac{p\left(\text{data} \mid \theta\right)p\left(\theta\right)}{\int p\left( \text{data} \mid \theta \right) p\left(\theta\right) d\theta}\\
+\text{posterior} = \frac{\text{likelihood} \times \text{prior}}{\text{average likelihood}} $$
+
+<div class="notes">
+This is called averaged likelihood because it is averaged over the prior (also called the evidence or the probability of the data). Also called marginal likelihood because it is marginalised over all possible values of $\theta$ weighted by their probability.
+</div>
+
+## Bayesian models
+
+> - In a typical Bayesian setting we have a likelihood $p\left(\text{data} \mid \theta\right)$, conditional on the parameter $\theta$, and a prior distribution $p\left(\theta\right)$. The posterior distribution for the parameter is $$ p\left(\theta \mid \text{data}\right) \propto p\left(\text{data} \mid \theta\right)p\left(\theta\right)\\ \text{posterior} \propto \text{likelihood} \times \text{prior} $$
+
+## Bayesian multilevel models
+
+- In the case of a multilevel model, each cluster $j$ has parameter $\theta_j$ which is an independent sample from a population distribution governed by some _hyperparameter_ $\phi$.
+- $\phi$ is also not known, and thus has its prior distribution $p\left(\phi\right)$ (_hyperprior_).
+- We have a joint prior distribution: $p\left(\phi,\theta\right)=p\left(\phi\right) \prod_{j=1}^{J} p\left(\theta_j \mid \phi\right)$
+- and a joint posterior distribution: $$p\left(\phi,\theta \mid \text{data}\right) \propto  \underbrace{p\left(\phi\right) \prod_{j=1}^{J} p\left(\theta_j \mid \phi\right)}_\text{prior} \times \underbrace{ p\left(\text{data} \mid \theta_j\right)}_\text{likelihood} $$
+
+## Bayesian parameter inference
+
+- The information we want about a parameter $\phi$ is contained in its marginal posterior distribution $p\left(\phi \mid \text{data} \right)=\int p\left(\phi,\theta \mid \text{data} \right) d\theta$.
+- The calculation can be difficult once a model has many parameters (to describe the uncertainty in a parameter of interest one must average or _marginalise_ over the uncertainty in all other parameters). 
+- Monte Carlo techniques and computer simulations (Markov-Chain Monte Carlo sampling, MCMC) can be used to draw samples from the posterior distribution.
+- Once you have samples from the posterior distribution, summarizing the marginal posterior distribution becomes simply a matter of counting values.
+
+## Metropolis algorithm {.build}
+
+Say you want to sample from a density $P({\bf x})$, but you can only evaluate a function $f({\bf x})$ that is proportional to the density $P({\bf x})$:
+
+- Initialization:
+    1. choose arbitrary starting point ${\bf x}_0$
+    2. choose a probability density to generate proposals $g({\bf x}_{n+1}|{\bf x}_n)$ (_proposal density_)
+
+- For each iteration $i$:
+    1. generate a candidate ${\bf x'}$ sampling from $g({\bf x}_{i+1}|{\bf x}_{i})$
+    2. calculate the _acceptance ratio_ $a = \frac{f({\bf x}')}{f({\bf x}_{i})}$
+    3. *accept/reject*: generate a uniform number $u$ in $[0,1]$
+        - if $u \le a$, accept and set ${\bf x}_{i+1}={\bf x'}$ (_"move to the new value"_)
+        - if $u > a$, reject and set ${\bf x}_{i+1}={\bf x}_{i}$  (_"stay where you are"_)
+
+
+## MCMC example
+
+Let use the sampling algorithm to infer values from one participant of the dataset `sleepstudy`.
+
+<div class="centered">
+```{r, echo=F, fig.width=2.8, fig.height=3.2}
+with(sleepstudy[sleepstudy$Subject=="308",],plot( Days,Reaction,pch=19,main="308",xlim=c(-1,11),ylim=c(200,500)))
+```
+</div>
+
+- To sample from the posterior distribution of parameters is sufficient to compute the un-normalized posterior: $\text{prior} \times \text{likelihood}$
+
+
+## MCMC example
+
+First, code one function to compute the (log)likelihood, keeping the data fixed.
+
+```{r}
+x <- sleepstudy$Days[sleepstudy$Subject=="308"]
+y <- sleepstudy$Reaction[sleepstudy$Subject=="308"]
+
+loglik <- function(par){
+  # par = [intercept, slope, log(residual Std.)]
+  pred <- par[1] + par[2]*x
+  return(sum(dnorm(y, mean = pred, sd = exp(par[3]), log = T)))
+}
+```
+
+## MCMC example
+
+Next, choose your priors
+
+```{r, echo=F, fig.width=8, fig.height=3}
+par(mfrow=c(1,3))
+curve(dnorm(x, mean=250, sd=180),from=0, to=1000, xlab="Intercept",ylab="prior density", col="blue")
+curve(dnorm(x, mean=20, sd=20),from=-50, to=50, xlab="Slope",ylab="prior density", col="blue")
+
+x_pSD <- seq(-1,6, length.out = 500)
+y_pSD <- dnorm(x_pSD , mean=4,sd=1)
+plot(exp(x_pSD),y_pSD, type="l", xlab=expression(sigma[epsilon]),ylab="prior density", col="blue")
+```
+
+## MCMC example
+
+Next, choose your priors
+
+```{r, echo=F, fig.width=8, fig.height=3}
+par(mfrow=c(1,3))
+curve(dnorm(x, mean=250, sd=180),from=0, to=1000, xlab="Intercept",ylab="prior density", col="blue")
+curve(dnorm(x, mean=20, sd=20),from=-50, to=50, xlab="Slope",ylab="prior density", col="blue")
+
+x_pSD <- seq(-1,6, length.out = 500)
+y_pSD <- dnorm(x_pSD , mean=4,sd=1)
+plot(x_pSD,y_pSD, type="l", xlab=expression(paste("log ",sigma[epsilon])),ylab="prior density", col="red")
+```
+
+## MCMC example
+
+Write a function that compute the log of the joint prior density for a combination of parameters
+
+```{r}
+logprior <- function(par){
+  intercept_prior <- dnorm(par[1], mean=250, sd=180, log=T)
+  slope_prior <- dnorm(par[2], mean=20, sd=20, log=T)
+  sd_prior <- dnorm(par[3],mean=4, sd=1, log=T)
+  return(intercept_prior+slope_prior+sd_prior)
+}
+```
+
+## MCMC example
+
+Put together likelihood and prior to obtain the (log) posterior density
+
+```{r}
+logposterior <- function(par){
+  return (loglik(par) + logprior(par))
+}
+```
+
+## MCMC example
+
+Choose the arbitrary starting point and the proposal density $g({\bf x}_{n+1}|{\bf x}_n)$
+
+```{r}
+# initial parameters
+startvalue <- c(250,20,5)
+
+# proposal density
+proposalfunction <- function(par){
+  return(rnorm(3, mean = par, sd= c(15,5,0.2)))
+}
+
+```
+
+## MCMC example
+
+This function execute iteratively the step we have seen before
+
+```{r}
+run_metropolis_MCMC <- function(startvalue, iterations){
+  chain <- array(dim = c(iterations+1,3))
+  chain[1,] <- startvalue
+  
+  for (i in 1:iterations){
+    # draw a random proposal
+    proposal <- proposalfunction(chain[i,])
+    
+    # ratio of posterior density between new and old values
+    a <- exp(logposterior(proposal) - logposterior(chain[i,]))
+    
+    # accept/reject
+    if (runif(1) < a){
+      chain[i+1,] <- proposal
+    }else{
+      chain[i+1,] <- chain[i,]
+    }
+  }
+  return(chain)
+}
+```
+
+
+## MCMC example
+
+
+```{r, echo=F, fig.width=8, fig.height=5}
+#set.seed(3)
+#chain <- run_metropolis_MCMC(startvalue, 20000)
+# #save(chain, file="chain_ex.RData")
+load("chain_ex.RData")
+
+burnIn <- 5000
+acceptance <- 1-mean(duplicated(chain[-(1:burnIn),]))
+
+LSfit <- lm(y~x)
+interceptLS <- coef(LSfit)[1]
+slopeLS <- coef(LSfit)[2]
+sigmaLS <- summary(LSfit)$sigma
+
+par(mfrow = c(2,3))
+hist(chain[-(1:burnIn),1],main="Intercept",border="white",col="dark grey", breaks=20)
+abline(v = interceptLS, col="red",lwd=2)
+hist(chain[-(1:burnIn),2],main="Slope",border="white",col="dark grey", breaks=20)
+abline(v = slopeLS , col="red",lwd=2)
+hist(exp(chain[-(1:burnIn),3]),main=expression(sigma[epsilon]),border="white",col="dark grey", breaks=20)
+abline(v = sigmaLS, col="red" ,lwd=2)
+
+plot(chain[-(1:burnIn),1], type = "l", main = "Chain values")
+abline(h = interceptLS, col="red",lwd=2)
+plot(chain[-(1:burnIn),2], type = "l" , main = "Chain values")
+abline(h = slopeLS, col="red",lwd=2)
+plot(exp(chain[-(1:burnIn),3]), type = "l" , main = "Chain values")
+abline(h = sigmaLS, col="red",lwd=2)
+```
+
+
+## MCMC example
+
+Having the samples from the posterior distribution, summarising uncertainty is simply a matter of counting values. Here I calculate a 95% Bayesian credible interval for slope.
+
+```{r}
+# remove initial 'burn in' samples
+burnIn <- 5000
+slope_samples <- chain[-(1:burnIn),2]
+
+# mean of posterior distribution
+mean(slope_samples)
+
+# 95% Bayesian credible interval
+alpha <- 0.05
+round(c(quantile(slope_samples, probs = alpha/2),quantile(slope_samples, probs = 1-alpha/2)),digits=2)
+```
+
+----
+
+- The Metropolis algorithm is the grandparent of modern MCMC techniques for drawing samples from unknown posterior distributions
+- Proposals are random and that can make it very inefficient, especially as the complexity of the model (and thus of the posterior) increases
+- Modern algorithm use clever proposals to get a better picture of the posterior distribution with fewer samples
+- A state-of-the-art algorithm is Hamiltonian Monte Carlo (HMC), which is used by the free software Stan ([mc-stan.org](http://mc-stan.org/))
+
+## Stan
+
+- Stan (named after Stanislaw Ulam, 1909-1984, co-inventor of MCMC methods) is a probabilistic programming language that enabels users to easily Bayesian inference on complex models.
+- Once a model is defined, Stan compiles a C++ program that uses HMC to draw samples from the posterior density
+- Stan is free, open-source, has a comprehensive documentation and interfaces for the most popular computing environments (R, Matlab, Python, Mathematica)
+- We shall see how to build a Bayesian multilevel model in Stan using again the `sleepstudy` dataset
+- I will use Stan's R interface (`RStan`, see installation instructions at [github.com/stan-dev/rstan/wiki/RStan-Getting-Started](https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started))
+
+
+## Bayesian LMM {.build}
+
+- The model can be expressed as $$
+y_{j} \sim \text{Normal}\left( \beta_0 + b_{0j} + \left( \beta_1 + b_{1j} \right){\rm{Days}}, \,\, \sigma_{\epsilon}^2 \right)\\
+b \sim \text{Normal}\left( 0, \,\, \Omega \right)\\
+$$
+
+- Priors$$
+\beta_0 \sim \text{Normal} \left(0.3,1 \right)\\
+\beta_1 \sim \text{Normal} \left(0.01,0.5 \right)\\
+\sigma_{\epsilon} \sim \text{HalfCauchy} \left(0, 0.5\right)\\
+$$
+
+
+## Bayesian LMM
+
+> - For efficiency and numerical stability, the matrix $\Omega$ is usually parametrized by a vector of variances  $\sigma_0, \sigma_1$ and a correlation matrix $\textbf{R}$ 
+$$
+\Omega = \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right) \textbf{R} \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right)
+$$
+
+## Variance-covariance and correlation matrices
+
+$$
+\begin{align*}
+\Omega & = \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right) \textbf{R} \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right)\\
+& = \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right)  \left( \begin{array}{cc} 1 & \rho \\ \rho & 1 \end{array} \right) \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right) \\
+& = \left( \begin{array}{cc} \sigma_0 & \rho\sigma_0 \\ \rho\sigma_1 & \sigma_1 \end{array} \right) \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right) \\
+& = \left( \begin{array}{cc} \sigma_0^2 & \rho\sigma_0\sigma_1 \\ \rho\sigma_0\sigma_1 & \sigma_1^2 \end{array} \right)\\
+\end{align*}
+$$
+
+## Bayesian LMM
+
+- Hyperprior$$
+\Omega = \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right) \textbf{R} \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right)\\
+{\bf \sigma}_{\Omega} \sim \text{HalfCauchy} \left(0, 0.5\right)\\ 
+\textbf{R} \sim \text{LKJcorr} \left( 2 \right)\\
+$$
+
+## Prior for correlation matrix
+
+The LKJ prior (Lewandowski, Kurowicka, & Joe, 2009) is a prior distribution over correlation matrices, has one parameter that control how 'skeptical' is the prior with respect to extreme correlation values.
+<div class="centered">
+```{r, echo=F, fig.width=4, fig.height=3}
+par(xpd=TRUE)
+
+R <- rethinking::rlkjcorr(1e5, K=2, eta=6)
+rethinking::dens(R[,1,2], xlab=expression(paste("correlation [",rho,"]")),col="red",bty="L",xlim=c(-1.05,1.05))
+
+R <- rethinking::rlkjcorr(1e5, K=2, eta=3)
+rethinking::dens(R[,1,2],col="dark grey", add=T)
+
+R <- rethinking::rlkjcorr(1e5, K=2, eta=1.5)
+rethinking::dens(R[,1,2],col="blue", add=T)
+
+R <- rethinking::rlkjcorr(1e5, K=2, eta=1)
+rethinking::dens(R[,1,2],col="dark green", add=T)
+
+legend("topleft",legend=c(6,3,1.5,1),lwd=1,col=c("red","dark grey","blue","dark green"),bty="n",inset=c(0.75,0))
+```
+</div>
+
+## Coding the model in Stan language {.build}
+
+- Stan models are typically specified in separate text files with `.stan` extension
+- Model specification consists of several blocks, e.g.
+    - `data`: declaration of all dependent/independent variables
+    - `parameters`: declare the free parameters of the model
+    - `model`: define likelihood function and priors
+- Other useful block types:
+    - `transformed parameters`: apply any transformation to the parameters, before computing the likelihood
+    - `generated quantities`: derive any quantities of interest based on data or parameters
+
+
+## `data`
+
+```
+data {
+  int<lower=1> N;                  // number of observations
+  real RT[N];                      // reaction time (transformed in seconds)
+  int<lower=0,upper=9> Days[N];    // predictor
+  int<lower=1> J;                  // number of subjects
+  int<lower=1,upper=J> Subject[N]; // subject id
+}
+```
+
+RStan requires the dataset to be organized as a list object 
+```{R}
+d_stan <- list(Subject=as.numeric(factor(sleepstudy$Subject,
+              labels=1:length(unique(sleepstudy$Subject)))),
+              Days=sleepstudy$Days,
+              RT = sleepstudy$Reaction/1000,
+              N=nrow(sleepstudy),
+              J=length(unique(sleepstudy$Subject)) )
+```
+
+## `parameters`
+
+```
+parameters {
+  vector[2] beta;               // fixed-effects parameters
+  real<lower=0> sigma_e;        // residual std
+  vector<lower=0>[2] sigma_u;   // random effects standard deviations
+  cholesky_factor_corr[2] L_u;  // L_u is the Choleski factor of the correlation matrix
+  matrix[2,J] z_u;              // random effect matrix
+}
+
+transformed parameters {
+  matrix[2,J] u;
+  u = diag_pre_multiply(sigma_u, L_u) * z_u; // use Cholesky to set correlation
+}
+```
+
+----
+
+For efficiency and numerical stability (see Stan manual) the correlation matrix $\textbf{R}$ is parametrized by its Cholesky factor $\textbf{L}$, which can be seen as the square root of $\textbf{R}$, i.e. 
+$$\textbf{L}\textbf{L}^T=\textbf{R} = \left( \begin{array}{cc} 1 & \rho \\ \rho & 1 \end{array} \right) $$ 
+If $\textbf{Z}_{\text{uncorr}}$ is a 2x$n$ matrix where the rows are 2 samples from uncorrelated random variables, then 
+$$
+\textbf{Z}_{\text{corr}} = \left( \begin{array}{cc} \sigma_0 & 0 \\ 0 & \sigma_1 \end{array} \right) \textbf{L} \, \textbf{Z}_{\text{uncorr}}
+ $$
+then $\textbf{Z}_{\text{corr}}$ have the desired variances $\sigma_0^2,\sigma_1^2$ and correlation $\rho$. ($\textbf{L}$ is lower-triangular Cholesky factor.)
+
+----
+
+Why does that work? Say the the two uncorrelated samples have zero mean and unit variance, then the covariance matrix is identity matrix, $\mathbb{E}\left( {Z{Z^T}} \right) - \mathbb{E}\left( Z \right) \mathbb{E}\left(Z \right)^T = \mathbb{E} \left( Z Z^T \right) = I$, and is identical to the correlation matrix.
+
+Say the desired correlation matrix is $\textbf{R}$; since it is symmetric and positive defined it is possible to obtain the Cholesky factorization $L{L^T} = \textbf{R}$.
+
+We transform the samples with $X=LZ$, we have that that the new covariance (correlation) matrix is
+$$
+\begin{align}
+\mathbb{E} \left(XX^T\right) &= \mathbb{E} \left((LZ)(LZ)^T \right) \\
+&= \mathbb{E} \left(LZ Z^T L^T\right) \\
+&= L \mathbb{E} \left(ZZ^T \right) L^T \\
+&= LIL^T = LL^T = \textbf{R} \\
+\end{align}
+$$
+
+The third step is justified because the expected value is a linear operator, therefore $\mathbb{E}(cX) = c\mathbb{E}(X)$. Also $(AB)^T = B^T A^T$, the order of the factor reverses.
+
+
+## `model`
+
+```
+model {
+  real mu; // conditional mean of the dependent variable
+
+  //priors
+  L_u ~ lkj_corr_cholesky(2);   // LKJ prior for the correlation matrix
+  to_vector(z_u) ~ normal(0,1); // before Cholesky, random effects are normal variates with SD=1
+  sigma_u ~ cauchy(0, 0.5);     // SD of random effects (vectorized)
+  sigma_e ~ cauchy(0, 0.5);     // prior for residual standard deviation
+  beta[1] ~ normal(0.3, 1);     // prior for fixed-effect intercept
+  beta[2] ~ normal(0.01, 0.5);  // prior for fixed-effect slope
+
+  //likelihood
+  for (i in 1:N){
+    mu = beta[1] + u[1,Subject[i]] + (beta[2] + u[2,Subject[i]])*Days[i];
+    RT[i] ~ normal(mu, sigma_e);
+  }
+}
+```
+
+## Running the model
+
+> - Run sampling through RStan
+```{r, eval=F}
+library(rstan)
+
+options(mc.cores = parallel::detectCores()) # indicate stan to use multiple cores if available
+
+sleep_model <- stan(file = "sleep_model_v2.stan", data = d_stan, iter = 2000, chains = 4)
+```
+- In case of warnings check 'A brief guide to Stan's warnings' for advice (http://mc-stan.org/misc/warnings.html)
+
+```{r, echo=F}
+sleep_model <- readRDS("sleep_fit_ppc.rds")
+```
+
+
+## Evaluating convergence
+
+> - Visualize chains to check for convergence
+```{r, fig.height=4,fig.width=8}
+traceplot(sleep_model, pars = c("beta","sigma_e","sigma_u"), inc_warmup = F)
+```
+
+
+## Evaluating convergence
+
+> - Check that $\hat R \approx 1\pm0.1$ (essentially $\hat R$ is the ratio of between-chain variance to within-chain variance)
+```{r}
+print(sleep_model, pars = c("beta","sigma_e"), probs = c(0.025, 0.975),digits=3)
+```
+
+----
+
+Posterior distribution of fixed-effects parameters.
+
+```{r, eval=F}
+pairs(sleep_model, pars = c("beta","sigma_e","sigma_u"))
+```
+
+<div class="centered">
+```{r, echo=F,fig.height=5,fig.width=5}
+pairs(sleep_model, pars = c("beta","sigma_e","sigma_u"))
+```
+</div>
+
+
+----
+
+Examine random effects correlation.
+
+```{r}
+# Use the L matrices to compute the correlation matrices
+L_u <- extract(sleep_model, pars = "L_u")$L_u
+cor_u <- apply(L_u, 1, function(x) tcrossprod(x)[1, 2])
+print(signif(quantile(cor_u, probs = c(0.025, 0.5, 0.975))))
+```
+
+## Posterior predictive check
+
+> - _'simulating replicated data under the fitted model and then comparing these to the observed data'_ (Gelman and Hill, 2007).
+```
+generated quantities {
+  real y_rep[N];        
+  matrix[2,J] u_rep;    // matrix of simulated random effects
+    for (j in 1:J) {
+    u_rep[1:2,j] = multi_normal_cholesky_rng(rep_vector(0, 2), 
+                                    diag_matrix(sigma_u) * (L_u));
+  }
+  for (i in 1:N){     // simulate the model
+    y_rep[i] = normal_rng(beta[1] + u_rep[1,Subject[i]] + 
+                          (beta[2] + u_rep[2,Subject[i]])*Days[i], 
+                          sigma_e);
+  }
+}
+```
+
+
+## Posterior predictive check
+
+> - If the model fits, then replicated data generated under the model should look similar to
+observed data.
+- Generating random observations from new simulated observers allow approximating the _posterior predictive distribution_, $p \left( y^{\text{rep}} \mid y \right) = \int p \left( y^{\text{rep}} \mid \theta \right) p\left(\theta \mid  y\right) d \theta$
+<div class="centered">
+```{r, echo=F,fig.width=4,fig.height=4}
+ndag <- readRDS("sleep_ppc_CI.rds")
+plot(sleepstudy$Days, sleepstudy$Reaction/1000, xlab="Days",ylab="Reaction",ylim=c(0.17,0.5),type="n")
+polygon(c(ndag$Days,rev(ndag$Days)), c(ndag$ci_ub,rev(ndag$ci_lb)), col="skyblue",border=NA)
+points(jitter(sleepstudy$Days,factor=0.4), sleepstudy$Reaction/1000, pch=19,col=rgb(0,0,0,0.5),cex=1.2)
+```
+<\div>
+
+----
+
+Comparison with `lme4` random effects estimates.
+
+```{r, eval=F}
+# extract samples
+samples_rf0 <- extract(sleep_model, pars="u")$u[,1,]
+samples_rf1 <- extract(sleep_model, pars="u")$u[,2,]
+
+# compute posterior mean
+rf_int <- apply(samples_rf0, 2, mean)
+rf_slp <- apply(samples_rf1, 2, mean)
+
+par(mfrow=c(1,2)) # plot
+plot(rf_int, ranef(m.1)$Subject[,1],pch=19,xlab="Stan", ylab="lme4",main="Intercept")
+plot(rf_slp, ranef(m.1)$Subject[,2],pch=19,xlab="Stan", ylab="lme4",main="Slope")
+```
+
+
+<div class="centered">
+```{r, echo=F, fig.height=2.75,fig.width=5}
+rf_int <- apply(extract(sleep_model, pars="u")$u[,1,], 2, mean)
+rf_slp <- apply(extract(sleep_model, pars="u")$u[,2,], 2, mean)
+
+par(mfrow=c(1,2),cex=0.7)
+plot(rf_int, ranef(m.1)$Subject[,1],pch=19,xlab="Stan", ylab="lme4",main="Intercept")
+abline(a=0,b=1000,lty=2)
+plot(rf_slp, ranef(m.1)$Subject[,2],pch=19,xlab="Stan", ylab="lme4",main="Slope")
+abline(a=0,b=1000,lty=2)
+```
+</div>
+
+## `rstanarm`
+
+>- It is not strictly necessary to write code from scratch in case of standard models
+- The package `rstanarm` automatically prepare Stan code from a model specified in standard R syntax, e.g.
+```{r, eval=F}
+library(rstanarm)
+sleepstudy$Reaction_s <- sleepstudy$Reaction/1000
+
+sleep_model_2 <- stan_lmer(Reaction_s ~ Days + (Days|Subject), 
+                           data = sleepstudy, 
+                           cores = 2, 
+                           iter = 2000, 
+                           chain=4)
+```
+
+```{r, echo=F}
+sleep_model_2 <- readRDS("sleep_fit_rstanarm.rds")
+```
+
+## `rstanarm`
+
+- Priors can be assigned (see the function `prior_summary()` to examine the default)
+- Another options is the package `bmrs` (Bürkner, 2017)
+
+----
+
+```{r}
+summary(sleep_model_2, pars=c("(Intercept)","Days"),digits=3)
+```
+
+
+## Interim summary
+
+> - Multilevel model are characterised by more than one sources of "random" variation
+- The distinguishing feature of Bayesian methods is the explicit use of probability distributions to quantify the uncertainty about unknown quantities
+- Using samples to approximate posterior distributions makes it much easier to summarize the results
+- Bayesian models estimated by MCMC sampling do not have the problem of convergence warnings (as in `lme4`), but it is important to check that sampling was succesfull (e.g. $\hat R$, ...)
+
+
+## MCMC: taming a wild chain
+
+> - When the posterior density has broad, flat regions, chains can wander erratically 
+```{r, eval=F}
+dat <- list(y=c(-1,1))
+stan_code <- "
+data{
+  real y[2];
+}
+parameters{
+  real mu;
+  real<lower=0> sigma;
+}
+model{
+  y ~ normal(mu, sigma);
+}
+"
+m_ <- stan(model_code=stan_code, data = dat, iter = 2000, chains = 4)
+```
+
+```{r, echo=F}
+m_ <- readRDS("wildchain1.rds")
+```
+
+
+## MCMC: taming a wild chain
+
+> - When the posterior density has broad, flat regions, chains can wander erratically 
+<div class="centered">
+```{r, fig.height=3.5,fig.width=6}
+rstan::traceplot(m_, pars = c("mu","sigma"), inc_warmup = F)
+```
+</div>
+
+
+## MCMC: taming a wild chain
+
+> - Weakly informative prior can gently guide the Markov chain toward reasonable parameter values 
+```{r, eval=F}
+dat <- list(y=c(-1,1))
+stan_code <- "
+data{
+  real y[2];
+}
+parameters{
+  real mu;
+  real<lower=0> sigma;
+}
+model{
+  mu ~ normal(1, 10);
+  sigma ~ cauchy(0, 1);
+  y ~ normal(mu, sigma);
+}
+"
+m_ <- stan(model_code=stan_code, data = dat, iter = 2000, chains = 4)
+```
+
+```{r, echo=F}
+m_ <- readRDS("wildchain2.rds")
+```
+
+
+## MCMC: taming a wild chain
+
+> - Weakly informative prior can gently guide the Markov chain toward reasonable parameter values 
+<div class="centered">
+```{r, fig.height=3.5,fig.width=6}
+rstan::traceplot(m_, pars = c("mu","sigma"), inc_warmup = F)
+```
+</div>
+
+
+## MCMC: non-identifiable parameters
+
+> - Markow chains give problems if parameters are non-identifiable (e.g. highly correlated predictors)
+```{r, eval=F}
+dat <- list(y=rnorm(100, mean=0, sd=1))
+stan_code <- "
+data{
+  real y[100];
+}
+parameters{
+  vector[2] alpha;
+  real<lower=0> sigma;
+}
+model{
+  real mu;
+  mu = alpha[1] + alpha[2];
+  y ~ normal(mu, sigma);
+}
+"
+m_ <- stan(model_code=stan_code, data = dat, iter = 4000, chains = 2)
+```
+
+```{r, echo=F}
+m_ <- readRDS("unidentified1.rds")
+```
+
+
+## MCMC: non-identifiable parameters
+
+> - Markow chains give problems if parameters are non-identifiable (e.g. highly correlated predictors)
+
+<div class="centered">
+```{r, fig.height=3.5,fig.width=7}
+rstan::traceplot(m_, pars = c("alpha","sigma"), inc_warmup = F)
+```
+</div>
+
+
+## MCMC: non-identifiable parameters
+
+> - Weakly informative priors can help also in this case
+```{r, eval=F}
+dat <- list(y=rnorm(100, mean=0, sd=1))
+stan_code <- "
+data{
+  real y[100];
+}
+parameters{
+  vector[2] alpha;
+  real<lower=0> sigma;
+}
+model{
+  real mu;
+  alpha ~ normal(0, 10);
+  mu = alpha[1] + alpha[2];
+  y ~ normal(mu, sigma);
+}
+"
+m_ <- stan(model_code=stan_code, data = dat, iter = 4000, chains = 2)
+```
+
+```{r, echo=F}
+m_ <- readRDS("unidentified2.rds")
+```
+
+
+## MCMC: non-identifiable parameters
+
+> - Weakly informative priors can help also in this case.
+<div class="centered">
+```{r, fig.height=3.5,fig.width=7}
+rstan::traceplot(m_, pars = c("alpha","sigma"), inc_warmup = F)
+```
+</div>
+
+
+## Priors {.build}
+
+- Priors are the initial belief about the plausiblity of possible parameter values.
+- There are no _conventional_ priors (differently from likelihoods).
+- Priors are subjective, but explicitly stated and easily criticized (e.g. less opaque than dropping outliers).
+- Priors are assumptions, and should be criticized (e.g. try different assumptions to check how sensitive inference is to the choice of priors).
+- Priors cannot be exact, but should be defendable.
+
+
+## Priors
+
+- There are no non-informative priors: _flat_ priors such as $\text{Uniform} \left(- \infty, \infty \right)$ tells the model that unrealistic values (e.g. extremely large) are as plausible as realistic ones. 
+- Priors should restrict parameter space to values that make sense.
+- Preferably choose _weakly informative_ priors that convey less information than you have available.
+- Priors should provide some regularization, i.e. endow the model with some skepticism, so that it doesn't get too excited when learning from the data (in a frequentist settings, this is similar to _penalized likelihood_ methods)
+- Prior recommendations: [https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations](https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations)
+- If using informative priors, these should be justified in the text when reporting the results (see examples in Gelman & Hennig, 2016, _Beyond subjective and objective in statistics_)
+
+
+
+## Generalized linear models (GLM)
+
+- A generalization of linear models where the linear predictor is related to the dependent variable through a _link function_ $$
+\Phi^{-1} \left[ p \left(y=1 \right) \right] = \textbf{X} \beta
+$$
+- The coefficients of the GLM can be straighforwardly mapped to the parameters of the psychometric function $$
+\begin{align}
+p \left(y_i\right) & = \Phi\left(\frac{x_i -\mu}{\sigma} \right) \\
+& = \Phi ( -\frac{\mu}{\sigma} + \frac{1}{\sigma}x_i )\\
+& = \Phi\left(\beta_0 + \beta_1x_i \right) \\ \\& \mu=-\frac{\beta_0}{\beta_1}, \,\,\, \sigma=\frac{1}{\beta_1} \\
+\end{align}
+$$
+
+## Generalized linear multilevel models
+
+- Often psychometric function are fit to individual data and group analysis is done on the estimated parameters. This approach neglects subject-specific standard errors and imbalances in the number of repetitions/trials.
+
+- Inferences can be improved by adopting a (generalized linear) multilevel approach (GLMM) $$
+ p \left(y \mid b\right)  = \Phi \left( \textbf{X} \beta + \textbf{Z} b \right) \\
+b \sim \mathcal{N}\left( 0, \Omega \right)
+$$
+
+- This model could be estimated with the `glmer` function of the `lme4` library. However it is not a realistic model: sometimes subjects push buttons at random and make stimulus-independent errors (lapses)
+- We can extend this model with an extra parameter $\lambda$ indicating the probability of lapsing$$
+ p \left(y \mid b\right)  = \lambda+\left( 1-2\lambda \right) \times \Phi \left( \textbf{X} \beta + \textbf{Z} b \right) \\
+b \sim \mathcal{N}\left( 0, \Omega \right)\\
+$$
+
+## GLMM example
+
+> - Observer were presented with two brief (250ms) peripheral stimuli, and asked to indicate which of the two was the furthest from the central fixation point. 
+- 2 conditions, with different levels of blur of the targets. How does the precision of position judgments change across conditions?
+
+```{r}
+d <- read.table("bisection2.txt", sep="\t",header=T)
+str(d)
+```
+
+## GLMM example
+
+<div class="centered">
+```{r, echo=F,warning=F,fig.height=3.5,fig.width=8.5}
+d$dx_bin <- cut(d$dx, 10)
+dag <- aggregate(cbind(rr,dx)~id+dx_bin+cond, d, mean)
+dag$se <- aggregate(rr~id+dx_bin+cond, d, binomSEM)$rr
+
+ggplot(dag, aes(x=dx,y=rr,color=factor(cond)))+geom_errorbar(aes(ymin=rr-se,ymax=rr+se),width=0,color="grey")+geom_point(pch=21)+facet_wrap(~id,ncol=7)+nice_theme+geom_smooth(data=d,aes(x=dx,y=rr),method="glm",method.args=list(family=binomial(probit)),size=0.8,fullrange=T,se=F)+scale_color_manual(values=c("black","blue"),guide=F)+labs(y="choice probability", x="distance offset [deg]")
+```
+</div>
+
+
+## Lapse rates
+
+- Each observer $j$ has a specific lapse rate $\lambda_j$. We use a Beta distribution to express the distribution of lapse rates in the population$$
+\lambda_j \sim \text{Beta} \left(a,b\right)
+$$
+
+## Lapse rates
+
+> - Each observer $j$ has a specific lapse rate $\lambda_j$. We use a Beta distribution to express the distribution of lapse rates in the population$$
+\lambda_j \sim \text{Beta} \left(a,b\right)
+$$
+
+<div class="centered">
+```{r, echo=F,warning=F,fig.height=3.5,fig.width=3.9}
+x <- seq(0,1, length.out=500)
+beta_x <- dbeta(x,1,5)
+plot(x, beta_x, type="l",col="blue",ylab=expression(p(lambda)),xlab=expression(lambda),bty="n")
+text(0.62,3,labels=expression(paste(lambda %~% "Beta(1,4)")),cex=1)
+```
+</div>
+
+----
+
+- $a$ and $b$ are the _hyperparameter_ that govern the distribution of lapse rates in the population. We need an _hyperprior_ to express the uncertainty in their values.
+- Since $a>0$ and $b>0$, the hyperprior can be modelled with a Gamma distribution. We can set the shape and rate parameters of the Gamma so that they favor a positively skewed Beta distribution with mode at 0$$
+a \sim \text{Gamma} \left(4,1 \right)\\
+b \sim \text{Gamma} \left(1,0.2 \right)\\
+$$
+<div class="centered">
+```{r, echo=F,warning=F,fig.height=3.5,fig.width=3.9}
+# hyperprior for beta distribution
+x <- seq(0,10, length.out=1000)
+shape_g1 <- dgamma(x, shape =4, rate=1)
+plot(x, shape_g1, type="l", ylim=c(0,0.25),ylab="probability density", xlab="",col="blue",bty="n")
+shape_g2 <- dgamma(x, shape =1, rate=0.2)
+lines(x, shape_g2, col="red")
+legend("topright",c("p(a)","p(b)"),lwd=1,col=c("red","blue"),bty="n",inset=0.1)
+
+```
+</div>
+
+## Stan code
+
+Declare all the variables in the `data` block.
+
+```
+data {
+  int<lower=1> N;
+  int<lower=0,upper=1> rr[N];
+  real ds[N];
+  int<lower=0,upper=1> cond[N];
+  int<lower=1> J;
+  int<lower=1,upper=J> id[N];
+}
+```
+
+----
+
+Define the free parameters in the `parameters` block
+
+```
+parameters {
+  vector[4] beta;                    // fixed-effects parameters
+  vector<lower=0,upper=1>[J] lambda; // lapse rate
+  vector<lower=0>[2] beta_ab;        // population parameters of lapse rate
+  vector<lower=0>[4] sigma_u;        // random effects standard deviations
+  cholesky_factor_corr[4] L_u;       // L_u is the Choleski factor of the correlation matrix
+  matrix[4,J] z_u;                   // random effect matrix
+}
+```
+In the `transformed parameters` block apply any transformations needed to compute the likelihood.
+```
+transformed parameters {
+  matrix[4,J] u;
+  u = diag_pre_multiply(sigma_u, L_u) * z_u; // use Cholesky to set correlation
+}
+```
+
+----
+
+Define priors and likelihood in the `model` block.
+
+```
+model {
+  real mu; // linear predictor
+
+  //priors
+  L_u ~ lkj_corr_cholesky(2);   // LKJ prior for the correlation matrix
+  to_vector(z_u) ~ normal(0,1); // before Cholesky, random eff. are normal variates with SD=1
+  sigma_u ~ cauchy(0, 1);       // SD of random effects (vectorized)
+  beta[1] ~ normal(0, 2);       // prior for intercept (cond 1)
+  beta[2] ~ normal(0, 4);       // prior for slope (cond 1)
+  beta[3] ~ normal(0, 1);       // prior for diff. in intercept (cond 1)
+  beta[4] ~ normal(0, 2);       // prior for diff. in slope (cond 1)
+  beta_ab[1] ~ gamma(4,1);      // hyper priors for lapse rate distribution
+  beta_ab[2] ~ gamma(1,0.2);
+  lambda ~ beta(beta_ab[1] ,beta_ab[2]);  //lapse rate
+
+  //likelihood
+  for (i in 1:N){
+    mu = beta[1] + u[1,id[i]] + cond[i]*(beta[2]+u[2,id[i]]) 
+        + (beta[3] + u[3,id[i]] + cond[i]*(beta[4] + u[4,id[i]] ))*ds[i];
+    rr[i] ~ bernoulli((1-lambda[id[i]])*Phi(mu)+lambda[id[i]]/2);
+  }
+}
+```
+
+----
+
+Prepare the data as a list for Stan.
+
+```{r}
+d_stan <- list(id=as.numeric(factor(d$id, labels=1:length(unique(d$id)))), ds=d$dx, rr = d$rr, N=nrow(d), J=length(unique(d$id)), cond=d$cond-1)
+str(d_stan)
+```
+
+```{r,echo=F}
+bisection_model <- readRDS("bisection_fit_ok.rds")
+```
+
+Run sampling
+```{r, eval=F}
+bisection_model <- stan(file = "bisection_stan_v1.stan", data = d_stan, iter = 4000, chains = 4)
+```
+
+----
+
+Check the convergence by visualising the chains
+```{r, eval=F}
+traceplot(bisection_model, pars = c("beta","sigma_u","beta_ab"), inc_warmup = F)
+```
+
+<div class="centered">
+```{r, echo=F,warning=F,fig.height=4,fig.width=8.5}
+rstan::traceplot(bisection_model, pars = c("beta","sigma_u","beta_ab"), inc_warmup = F)
+```
+</div>
+
+
+----
+
+Visualize posterior distribution
+```{r, eval=F}
+pairs(bisection_model, pars = c("beta","sigma_u"))
+```
+
+<div class="centered">
+```{r, echo=F,warning=F,fig.height=5,fig.width=5}
+pairs(bisection_model, pars = c("beta"))
+```
+</div>
+
+----
+
+```{r}
+print(bisection_model, pars = c("beta","sigma_u","beta_ab"), probs = c(0.025, 0.975),digits=3)
+```
+
+
+----
+
+<div class="centered">
+```{r, echo=F,warning=F,fig.height=4,fig.width=6}
+PPC <- readRDS("bisection_ok_CI.rds")
+dag <- PPC[[1]]
+ndag <- PPC[[2]]
+dag$ds <- dag$dx
+dag$cond <- dag$cond-1
+ggplot(ndag, aes(x=ds,y=rr,color=factor(cond),fill=factor(cond)))+geom_line(lty=2)+geom_ribbon(aes(ymin=rr-ci,ymax=rr+ci),alpha=0.2,size=0)+nice_theme+labs(y="choice probability", x="distance offset [deg]")+ggtitle("Posterior predictive check")+facet_grid(.~cond)+coord_cartesian(ylim=c(0,1))+geom_point(data=dag,pch=19,size=2)+scale_color_manual(values=c("black","blue"),guide=F)+scale_fill_manual(values=c("black","blue"),guide=F)+geom_errorbar(data=dag,aes(ymin=rr-ci,ymax=rr+ci),width=0)
+```
+</div>
+
+
+## Inference
+
+```{r, echo=F, warning=F, include=F}
+library(bayesplot)
+library(Hmisc)
+```
+
+
+Dedicated packages (e.g. the package `bayesplot`) makes it easier to summarize the results.
+```{r, eval=F}
+library(bayesplot)
+posterior2 <- extract(bisection_model)
+mcmc_intervals(posterior2, regex_pars = c("beta\\[[1-4]","sigma_u\\[[1-4]"), prob=0.8, prob_outer = 0.95, point_est="mean")
+```
+
+<div class="centered">
+```{r, echo=F,warning=F,fig.height=3,fig.width=5}
+posterior2 <- extract(bisection_model, inc_warmup = FALSE, permuted = FALSE)
+mcmc_intervals(posterior2, regex_pars = c("beta\\[[1-4]","sigma_u\\[[1-4]"), prob=0.8, prob_outer = 0.95, point_est="mean")+labs(title="Posterior distributions",subtitle="mean, 80% and 95% credible intervals")
+```
+</div>
+
+## Inference
+
+Dedicated packages (e.g. the package `bayesplot`) makes it easier to summarize the results.
+```{r, eval=F}
+mcmc_areas(posterior2, regex_pars = c("beta\\[[1-4]","sigma_u\\[[1-4]"), prob=0.80, point_est="mean")
+```
+
+<div class="centered">
+```{r, echo=F,warning=F,fig.height=3.5,fig.width=5}
+mcmc_areas(posterior2, regex_pars = c("beta\\[[1-4]","sigma_u\\[[1-4]"), prob=0.80, prob_outer = 0.995, point_est="mean")+labs(title="Posterior distributions",subtitle="with mean and 80% credible intervals")
+```
+</div>
+
+## Inference
+
+Fixed-effects are parametrised according to standard GLM formulation (in terms of $\beta_0, \beta_1, \dots$). These can be easily transformed in the psychometric functions parameters $\mu$ and $\sigma$.
+
+```{r, eval = F}
+beta_par <- extract(bisection_model, pars = "beta")$beta
+jnd_1 <- 1/beta_par[,3]
+jnd_2 <- 1/(beta_par[,3]+beta_par[,4])
+jnd_diff <- jnd_2-jnd_1 # posterior JND differences distribution
+```
+
+Calculate Highest Posterior Density (HPD) intervals (the narrowest interval containing the specified probability mass, e.g. 0.95).
+```{r, eval = F}
+jnd_ci_1 <- HPDinterval(as.mcmc(jnd_1), prob=0.95)
+jnd_ci_2 <- HPDinterval(as.mcmc(jnd_2), prob=0.95)
+jnd_ci_diff <- HPDinterval(as.mcmc(jnd_diff), prob=0.95)
+```
+
+## Inference
+
+Plot
+
+```{r, eval=F}
+Hmisc::errbar(c("sigma 1","sigma 2","difference"), c(mean(jnd_1),mean(jnd_2),mean(jnd_diff)), yplus=c(jnd_ci_1[2],jnd_ci_2[2], jnd_ci_diff[2]),yminus=c(jnd_ci_1[1],jnd_ci_2[1], jnd_ci_diff[1]))
+```
+
+<div class="centered">
+```{r, echo=F,warning=F,fig.height=3.8,fig.width=4, message=F}
+beta_par <- extract(bisection_model, pars = "beta")$beta
+jnd_1 <- 1/beta_par[,3]
+jnd_2 <- 1/(beta_par[,3]+beta_par[,4])
+jnd_diff <- jnd_2-jnd_1
+
+library(coda)
+jnd_ci_1 <- HPDinterval(as.mcmc(jnd_1), prob=0.95)
+jnd_ci_2 <- HPDinterval(as.mcmc(jnd_2), prob=0.95)
+jnd_ci_diff <- HPDinterval(as.mcmc(jnd_diff), prob=0.95)
+
+par(lwd=1,mar=(c(8, 4, 0, 2) + 0.1),cex.axis=0.7,cex.main=0.8)
+errbar(c("sigma 1","sigma 2","difference"), c(mean(jnd_1),mean(jnd_2),mean(jnd_diff)), yplus=c(jnd_ci_1[2],jnd_ci_2[2], jnd_ci_diff[2]),yminus=c(jnd_ci_1[1],jnd_ci_2[1], jnd_ci_diff[1]),lwd=2,cex=1.5,ylim=c(0,2.5),col="blue",errbar.col="blue")
+```
+</div>
+
+<div class="notes">
+HPD intervals are defined as "the shortest interval for which the difference in the empirical cumulative density function values of the endpoints is the nominal probability"
+</div>
+
+
+## Hierarchical mixtures
+
+- Participants adjust an arrow to report the direction of a briefly presented moving stimulus, in one of two conditions, pre vs. post cue (data from  Haladjian, Lisi & Cavanagh, APP 2018).
+- We are interested in both the variability and the bias of the response error.
+- These measures can be distorted by random guesses, so they are tipycally modelled as a mixture of a uniform and a bell-shaped distribution (e.g. Gaussian, vonMises).
+- Here, the response are angles, and the response error is bounded within $-\pi$ and $\pi$
+- The mixture model can be expressed as $$
+p(x)=\lambda \frac{1}{2\pi} + (1-\lambda) \frac{1}{2\pi I_0(k)} e^{k \cos (x-\mu)}
+$$ where $\lambda$ indicates the probability of a random response.
+
+
+## Hierarchical mixtures
+
+```{r}
+d <- read.table("cueingdd.txt",header=T,sep="\t")
+d$alpha_rad <- d$alpha_deg/180*pi
+d$rerr <- d$dir*angDiff(d$alpha_rad, d$resp)# transform in signed angular differences
+str(d)
+```
+
+## Hierarchical mixtures
+
+<div class="centered">
+```{r, echo=F, fig.height=5,fig.width=6.5}
+d$rerr_deg <- d$rerr/pi*180
+d$cue_f <- ifelse(d$cue==1,"(1) pre-cue","(2) post-cue")
+ggplot(d,aes(x=rerr_deg))+geom_histogram(binwidth=5,aes(y = ..density..),color="white",lwd=0.2)+geom_density(size=0.3,lty=1)+geom_vline(xintercept=0,lty=2,size=0.5)+facet_grid(id~cue_f)+nice_theme+labs(x=" response error [deg]")+scale_x_continuous(breaks=seq(-180,180,45))
+```
+</div>
+
+
+## Hierarchical mixtures
+
+> - `data` block.
+```
+data {
+  int<lower=1> N;
+  real<lower=-pi(),upper=pi()> rerr[N];
+  int<lower=1,upper=2> cue[N];
+  int<lower=1> J;
+  int<lower=1,upper=J> id[N];
+}
+```
+
+## Hierarchical mixtures
+
+> - `parameter` block.
+```
+parameters {
+  // group-level
+  vector[2] mu;         // bias
+  vector[2] logk;       // k (log scale)
+  vector[2] logilambda;   // mixing parameter (probit scale)
+  
+  // subject specific
+  vector<lower=0>[6] sigma_u;    // random effects standard deviations
+  cholesky_factor_corr[6] L_u;   // L_u is the Choleski factor
+  matrix[6,J] z_u;               // random effect matrix
+}
+
+```
+
+## Hierarchical mixtures
+
+> - `transformed parameters` block: here the parameters are transformed as required for the computation of the likelihood (to ensure that $k>0$ and $1<\lambda < 1$).
+```
+transformed parameters {
+  matrix<lower=0,upper=1>[2,J] lambda_j;
+  matrix<lower=0>[2,J] kappa_j;
+  matrix[2,J] mu_j;
+  matrix[6,J] u;
+  
+  u = diag_pre_multiply(sigma_u, L_u) * z_u;
+  
+  for (j in 1:J){
+    mu_j[1,j]= mu[1] + u[1,j];
+    mu_j[2,j]= mu[2] + u[2,j];
+    kappa_j[1,j]= exp(logk[1] + u[3,j]);
+    kappa_j[2,j]= exp(logk[2] + u[4,j]);
+    lambda_j[1,j]= inv_logit(logilambda[1] + u[5,j]);
+    lambda_j[2,j]= inv_logit(logilambda[2] + u[6,j]);
+  }
+}
+```
+
+## Hierarchical mixtures
+
+> - `model` block.
+
+```
+model {
+  // priors
+  L_u ~ lkj_corr_cholesky(2); 
+  to_vector(z_u) ~ normal(0,1); 
+  sigma_u ~ normal(0, 10);
+  mu ~ normal(0.5, 10);
+  logk ~ normal(2, 20);
+  logilambda ~ normal(-4, 30);
+ 
+  // likelihood
+  for (n in 1:N){
+    if (kappa_j[cue[n],id[n]] < 100)
+      target += log_mix(lambda_j[cue[n],id[n]],
+                      uniform_lpdf(rerr[n] | -pi(), pi()),
+                      von_mises_lpdf(rerr[n] | mu_j[cue[n],id[n]], kappa_j[cue[n],id[n]]));
+    else
+      target += log_mix(lambda_j[cue[n],id[n]],
+                      uniform_lpdf(rerr[n] | -pi(), pi()),
+                      normal_lpdf(rerr[n] | mu_j[cue[n],id[n]], sqrt(1/kappa_j[cue[n],id[n]])));
+  }
+}
+```
+
+```{r,echo=F}
+mix_model <- readRDS("mixmodel_2.3.rds")
+```
+
+## Hierarchical mixture
+
+> - Check convergence across chains.
+<div class="centered">
+```{r, echo=F, fig.width=7, fig.height=4}
+rstan::traceplot(mix_model, pars = c("mu","logk","logilambda"), inc_warmup = T)
+```
+</div>
+
+
+## Hierarchical mixture
+
+> - Compute Bayesian credibility interval over mean bias differences.
+```{r}
+mu1 <- extract(mix_model, pars="mu[1]", inc_warmup = F, permuted = FALSE)
+mu2 <- extract(mix_model, pars="mu[2]", inc_warmup = F, permuted = FALSE)
+mu1 <- c(mu1[,1,1],mu1[,2,1])/pi*180
+mu2 <- c(mu2[,1,1],mu2[,2,1])/pi*180
+
+HPDinterval(as.mcmc(mu2-mu1), prob=0.95)
+```
+
+## Hierarchical mixture
+
+> - Compute Bayesian credibility interval over mean differences in precision.
+```{r}
+k1 <- extract(mix_model, pars="logk[1]", inc_warmup = F, permuted = FALSE)
+k2 <- extract(mix_model, pars="logk[2]", inc_warmup = F, permuted = FALSE)
+
+# transform concentration parameter k into a standard deviation
+k2SD <- function(k) sqrt(-2 *log(besselI(k, nu=1)/besselI(k, nu=0)))
+
+sd1 <- k2SD(exp(c(k1[,1,1],k1[,2,1])))/pi*180
+sd2 <- k2SD(exp(c(k2[,1,1],k2[,2,1])))/pi*180
+
+HPDinterval(as.mcmc((sd2-sd1), prob=0.95))
+```
+
+## Useful resources
+
+> - Stan User manual.
+> - Stan forum: [https://discourse.mc-stan.org](https://discourse.mc-stan.org/).
+> - _Statistical Rethinking: A Bayesian Course with Examples in R and Stan_, Richard McElreath CRC Press, 2015.
+
