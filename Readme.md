@@ -2,7 +2,7 @@
 
 This repository contains the RMarkdown script to generate slides for an introductory course on Bayesian multilevel modeling. This was presented at the GDR Vision conference 2018, in Paris.
 
-you can visualize the slides online [at this link](https://github.com/mattelisi/Bayes-multilevel-tutorial.git) (press left/right arrow keys to change slide).
+**You can visualize the slides online [at this link](https://github.com/mattelisi/Bayes-multilevel-tutorial.git) (press left/right arrow keys to change slide).**
 
 This repository contains also files with posterior samples of the fitted models (.rds or .RData formats). The code of stan models is indicated with the `.stan` extension. The file `code_GDR2018.R` documents all the analyses step by step, and the file `GDR2018_slidesML.Rmd` is the Rmarkdown script used to generate the slides (ioslides presentation in .html format, `GDR2018_slidesML.html`).
 
